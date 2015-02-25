@@ -1,0 +1,382 @@
+<!doctype html>
+<html ng-app="webPerformanceApp">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+  	<title>Epic Battles</title>
+  	<script>
+  		var documentDomainError; 
+  		try { 
+  			document.domain = "github.io"; 
+  		} catch(error) {
+  			documentDomainError = error;
+  		}
+	</script>
+	<script src="https://code.jquery.com/jquery-1.11.2.min.js"></script>
+	<script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.3.13/angular.min.js"></script>
+	<script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.3.13/angular-sanitize.min.js"></script>
+	<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/js/bootstrap.min.js"></script>
+	<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap.min.css"></link>
+	<style>
+		.metricValueLeft { text-align: right; width: 100px; }
+ 		.metricValueRight { text-align: left; width: 100px; }
+ 		.metricLabel { text-align: center; width: 100px; }
+ 		.center { float: none; margin-left: auto; margin-right: auto; }
+ 		h3.stage { font-weight: 200 }
+ 		div.iframe { float:left; }
+ 		.dropdown-menu li:hover { cursor: pointer; }
+ 		.vertical-align { display: flex; align-items:center;}
+ 	</style>
+    <script>
+
+angular.module('webPerformanceApp', ['ngSanitize'])
+  // from http://stackoverflow.com/questions/17547917/angularjs-image-onload-event
+  .directive('sbLoad', ['$parse', function ($parse) {
+    return {
+      restrict: 'A',
+      link: function (scope, elem, attrs) {
+        var fn = $parse(attrs.sbLoad);
+        elem.on('load', function (event) {
+          scope.$apply(function() {
+            fn(scope, { $event: event });
+          });
+        });
+      }
+    };
+  }])
+  .filter('percentage', ['$window', function ($window) {
+        return function (input, decimals, suffix) {
+            decimals = angular.isNumber(decimals)? decimals :  0;
+            suffix = suffix || '%';
+            if ($window.isNaN(input)) {
+                return '';
+            }
+            return Math.round(input * Math.pow(10, decimals + 2))/Math.pow(10, decimals) + suffix
+        };
+  }])
+  .filter('abs', [function() {
+  	return function(input) {
+  		return Math.abs(input);
+  	};
+  }])
+  .controller('WebPerformanceController', ['$sce', '$scope', '$interval', function($sce, $scope, $interval) {
+  	$scope.stages = ['total', 'redirect', 'appCache', 'dns', 'tcp', 'ssl', 'request', 'response', 'processing', 'onLoad'];
+  	$scope.metrics = ['min', 'max', 'avg', 'stdev', 'current', 'count', 'sum'];
+  	$scope.visibleMetrics = ['current', 'min', 'avg', 'max'];
+  	$scope.errors = [];
+  	$scope.errorsLookup = {};
+
+  	$scope.battle = {
+  		'samplingInterval': 10000, // milliseconds
+  		'headline': 'When serving the same TodoMVC app...',
+  		'scoring': {
+  			stage: 'total',
+  			metric: 'current'
+  		},
+  		'contestants': [
+  				{
+	  				headlineLabel: 'TodoMVC AngularJS',
+	  				url: $sce.trustAsResourceUrl('http://gmoon.github.io/todomvc/examples/angularjs/#/'),
+	  				id: 'angulajs',
+	  				label: 'AngularJS',
+	  				labelCaption: 'angular',
+  				}, {
+	  				headlineLabel: 'TodoMVC EmberJS',
+	  				url: $sce.trustAsResourceUrl('http://gmoon.github.io/todomvc/examples/emberjs/'),
+	  				id: 'emberjs',
+	  				label: 'EmberJS',
+	  				labelCaption: 'ember',  					
+  				}
+  		],
+  		'left': undefined,
+  		'right': undefined,
+  	};
+
+ 	var stop;
+
+ 	$scope.initMetrics = function(stages, metrics) {
+ 		var objStages = stages.reduce(function(objStages, stage) {
+			objMetrics = metrics.reduce(function(objMetrics, metric) {
+				objMetrics[metric] = 0;
+				return objMetrics;
+			}, {});
+			objStages[stage] = objMetrics;
+			return objStages;
+		}, {});
+		return objStages;
+ 	}
+
+    $scope.onIframeLoad = function(event) {
+    	$scope.processIframeLoad(event.currentTarget.id, event.currentTarget);
+    }
+
+    $scope.processIframeLoad = function(type, elem) {
+		var timing     = elem.contentWindow.performance.timing;
+		var navStart   = timing.navigationStart;
+		var redirect   = timing.redirectEnd - timing.redirectStart;
+		var appCache   = timing.domainLookupStart - timing.fetchStart;
+		var dns        = timing.domainLookupEnd - timing.domainLookupStart;
+		var tcp        = timing.connectEnd - timing.connectStart;
+		var ssl        = timing.secureConnectionStart > 0 ? timing.connectEnd - timing.secureConnectionStart : 0;
+		var request    = timing.responseStart - timing.requestStart;
+		var response   = timing.responseEnd - timing.responseStart;
+		var processing = timing.loadEventStart - timing.domLoading;
+		var onLoad     = timing.loadEventEnd - timing.loadEventStart;
+		var total      = timing.loadEventEnd - navStart;
+		$scope.setMetric(type, 'redirect', redirect);
+		$scope.setMetric(type, 'appCache', appCache);
+		$scope.setMetric(type, 'dns', dns);
+		$scope.setMetric(type, 'tcp', tcp);
+		$scope.setMetric(type, 'ssl', ssl);
+		$scope.setMetric(type, 'request', request);
+		$scope.setMetric(type, 'response', response);
+		$scope.setMetric(type, 'processing', processing);
+		$scope.setMetric(type, 'onLoad', onLoad);
+		$scope.setMetric(type, 'total', total);
+		if ($scope.stats[$scope.battle.left.id].total.count===$scope.stats[$scope.battle.right.id].total.count) {
+			$scope.recalcPercentage();
+		}
+    }
+
+    $scope.setMetric = function(type, metric, current) {
+    	m = $scope.stats[type][metric];
+    	m['current'] = current;
+    	m['count']   ++;
+    	m['sum']     += current;
+    	m['max']     = current > m['max'] ? current : m['max'];
+    	m['min']     = current < m['min'] ? current : m['min'];
+    	m['avg']     = Math.floor(m['sum']/m['count']);
+    }
+
+    $scope.fight = function() {
+    	// Don't start a new fight if we are already fighting
+    	if ( angular.isDefined(stop) ) return;
+    	stop = $interval(function() {
+    		try {
+    			$scope.battle.contestants.forEach(function(i) {
+    				$("#"+i.id)[0].contentWindow.location.reload();
+    			});
+	 		} catch(error) {
+	 			$scope.addError(error);
+	 		};
+ 		}, $scope.battle.samplingInterval);
+    }
+ 
+ 	$scope.recalcPercentage = function() {
+ 		left  = $scope.stats[$scope.battle.left.id].total.current;
+ 		right = $scope.stats[$scope.battle.right.id].total.current;
+ 		$scope.pctSlower = ( right - left ) / left;
+ 	}
+
+ 	$scope.stopFight = function() {
+ 		if (angular.isDefined(stop)) {
+ 			$interval.cancel(stop);
+ 			stop = undefined;
+ 		}
+ 	}
+
+ 	$scope.isStarted = function() {
+ 		return angular.isDefined(stop) ? true : false;
+ 	}
+
+ 	$scope.toggleFight = function() {
+ 		if (angular.isDefined(stop)) {
+ 			$scope.stopFight();
+ 		}
+ 		else {
+ 			$scope.fight();
+ 		}
+ 	}
+
+ 	$scope.resetFight = function() {
+ 		$scope.pctSlower = 0;
+ 		$scope.stats = {};
+ 		$scope.battle.contestants.forEach(function(i) {
+ 			$scope.stats[i.id] = $scope.initMetrics($scope.stages, $scope.metrics);
+ 		});
+ 	}
+
+ 	$scope.clearErrorMessage = function(index) {
+ 		$scope.errors.splice(index, 1);
+ 	}
+
+ 	$scope.addError = function(error) {
+ 		// look for this error message
+ 		var result = $.grep($scope.errors, function(e){ return e.message === error.toString(); });
+ 		if (result.length===0) { // add the error to the list
+	 		$scope.errors.push({ 
+	  			message: error.toString(), 
+	  			count: 1
+	  		});
+	 	} else { // increment the count
+	 		result[0].count++;
+	 	}
+ 	}
+
+ 	$scope.promoteFighter = function(which, index) {
+ 		$scope.battle[which] = $scope.battle.contestants[index];
+ 		$scope.recalcPercentage();
+ 	}
+
+ 	// register 
+   	if (angular.isDefined(documentDomainError)) {
+ 		$scope.addError(documentDomainError);
+  	};
+  	$scope.battle.left  = $scope.battle.contestants[0];
+  	$scope.battle.right = $scope.battle.contestants[1];
+	$scope.resetFight();    
+    $scope.fight();
+
+  }]);
+    </script>
+ 
+  </head>
+  <body>
+    <div ng-controller="WebPerformanceController" class="container text-center">
+		<div class="container">
+
+	    	<h1>{{battle.headline}}</h1>
+
+	      	<div class="jumbotron">
+	      		<div class="row vertical-align">
+	      			<div class="col-md-4 text-right">
+						<h2>{{battle.left.headlineLabel}}</h2>
+					</div>
+					<div class="col-md-4">
+						is
+						<h2>{{ pctSlower | abs | percentage }}<br/>{{ pctSlower >= 0 && 'faster' || 'slower'}}</h2>
+						than
+					</div>
+					<div class="col-md-4 text-left">
+						<h2>{{battle.right.headlineLabel}}</h2>
+					</div>
+				</div>
+
+			</div>
+
+			<div class="alert alert-danger" role="alert" ng-repeat="error in errors">
+				<span class="glyphicon glyphicon-exclamation-sign" aria-hidden="true"></span>
+				<span>{{error.message}}</span>
+				<span class="badge">{{error.count}}</span>
+				<button type="button" class="close" aria-label="Close" ng-click="clearErrorMessage($index)"><span class="glyphicon glyphicon-remove-sign"></span></button>
+			</div>   
+
+		</div>
+
+		<div class="container">
+
+			<div class="row">
+				<div class="col-md-4 text-right">
+					<ul class="nav">
+						<li class="dropdown">
+							<div>
+								<h3>
+									<button class="btn-link dropdown-toggle text-right" data-toggle="dropdown">
+										<span class="caret"></span>
+									</button>
+									<ul class="dropdown-menu dropdown-menu-right" role="menu" aria-labelledby="dLabel">
+										<li ng-repeat="contestant in battle.contestants">
+											<a data-ng-click="promoteFighter('left', $index)">
+												<h4>{{contestant.label}}</h4>
+												<small>{{contestant.labelCaption}}</small>
+											</a>
+										</li>
+									</ul>								
+									{{ battle.left.label }}
+								</h3>
+							</div>
+						</li>
+					</ul>
+					<small><a href="{{ battle.left.url }}">{{ battle.left.labelCaption }}</a></small>
+				</div>
+				<div class="col-md-4">
+					<h3>vs.</h3>
+					<button type="button" data-ng-click="toggleFight()" aria-hidden="true">
+						<span title="{{isStarted() ? 'pause sampling' : 'start sampling'}}" ng-class="{true: 'glyphicon glyphicon-pause', false:'glyphicon glyphicon-play'}[isStarted()]"></span>
+					</button>
+					<button type="button" data-ng-click="resetFight()" aria-hidden="true">
+						<span title="reset counters" class="glyphicon glyphicon-refresh"></span>
+					</button>
+				</div>
+				<div class="col-md-4 text-left">
+					<ul class="nav">
+						<li class="dropdown">
+							<div>
+								<h3>
+									{{ battle.right.label }}
+									<button class="btn-link dropdown-toggle text-left" data-toggle="dropdown">
+										<span class="caret"></span>
+									</button>
+									<ul class="dropdown-menu dropdown-menu-left" role="menu" aria-labelledby="dLabel">
+										<li ng-repeat="contestant in battle.contestants">
+											<a data-ng-click="promoteFighter('right', $index)">
+												<h4>{{contestant.label}}</h4>
+												<small>{{contestant.labelCaption}}</small>
+											</a>
+										</li>
+									</ul>								
+								</h3>
+							</div>
+						</li>
+					</ul>
+					<small><a href="{{ battle.left.url }}">{{ battle.right.labelCaption }}</a></small>
+				</div>
+			</div>
+
+			<div class="row">
+				<div class="col-md-4 text-right">
+					<h3>{{ stats[battle.left.id]["total"]["count"] }}</h3>
+				</div>
+				<div class="col-md-4">
+					<h3 class="stage">samples</h3>
+				</div>
+				<div class="col-md-4 text-left">
+					<h3>{{ stats[battle.right.id]["total"]["count"] }}</h3>	
+				</div>
+			</div>
+
+			<div class="row">
+				<div class="col-md-4 text-right">
+					
+				</div>
+				<div class="col-md-4">
+					<span class="stage">(every {{ battle.samplingInterval / 1000 }} seconds)</span>
+				</div>
+				<div class="col-md-4 text-left">
+					
+				</div>
+			</div>
+
+			<div ng-repeat="stage in stages">
+				<div class="row" ng-repeat="metric in visibleMetrics">
+					<div class="col-md-4 text-right" ng-switch on="$index===0">
+						<h3 ng-switch-when="true">{{ stats[battle.left.id][stage][metric]}}</h3>
+						<span ng-switch-default>{{stats[battle.left.id][stage][metric]}}</span>
+					</div>
+					<div class="col-md-4" ng-switch on="$index===0">
+						<h3 class="stage" ng-switch-when="true">{{ stage }}</h3>
+						<span class="stage" ng-switch-default>{{metric}}</span>
+					</div>
+					<div class="col-md-4 text-left" ng-switch on="$index===0">
+						<h3 ng-switch-when="true">{{ stats[battle.right.id][stage][metric]}}</h3>
+						<span ng-switch-default>{{stats[battle.right.id][stage][metric]}}</span>
+					</div>
+				</div>
+			</div>
+
+		</div>
+      <hr>
+	  <div class="iframe" ng-repeat="contestant in battle.contestants">
+	  	<label>{{ contestant.label }} Content</label><br/>
+	  	<iframe id="{{ contestant.id }}" ng-src="{{contestant.url}}" sb-load="onIframeLoad($event)">
+	  	</iframe>
+	  </div>
+    </div>
+    <hr>
+    <div class="container text-center">
+    	<label><a href="https://developer.mozilla.org/en-US/docs/Navigation_timing">Navigation Timing</a></label>
+		<img class="img-responsive center-block" src="https://www.w3.org/TR/navigation-timing/timing-overview.png" alt="performance.timing">
+	</div>
+	</body>
+</html>
