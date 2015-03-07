@@ -369,7 +369,7 @@ angular.module('webPerformanceApp', ['ngSanitize'])
       <hr>
 	  <div class="iframe" ng-repeat="contestant in battle.contestants">
 	  	<label>{{ contestant.label }} Content</label><br/>
-	  	<iframe id="{{ contestant.id }}" ng-src="{{contestant.url}}" sb-load="onIframeLoad($event)"  onfocus="return false;">
+	  	<iframe id="{{ contestant.id }}" ng-src="{{contestant.url}}" sb-load="onIframeLoad($event)" sandbox>
 	  	</iframe>
 	  </div>
     </div>
