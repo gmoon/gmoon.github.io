@@ -353,7 +353,7 @@ angular.module('webPerformanceApp', ['ngSanitize'])
 				</div>
 			</div>
 
-			<div ng-repeat="stage in stages">
+			<div ng-repeat="stage in stages" ng-hide="stats[battle.right.id]['total']['count'] <= 0" class="ng-hide">
 				<div class="row" ng-repeat="metric in visibleMetrics">
 					<div class="col-md-4 text-right" ng-switch on="$index===0">
 						<h3 ng-switch-when="true">{{ stats[battle.left.id][stage][metric]}}</h3>
