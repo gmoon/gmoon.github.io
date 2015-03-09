@@ -98,7 +98,12 @@ angular.module('webPerformanceApp', ['ngSanitize'])
  	$scope.initMetrics = function(stages, metrics) {
  		var objStages = stages.reduce(function(objStages, stage) {
 			objMetrics = metrics.reduce(function(objMetrics, metric) {
-				objMetrics[metric] = 0;
+				if (metric==='min') {
+					objMetrics[metric] = 1000000;
+				}
+				else {
+					objMetrics[metric] = 0;
+				}
 				return objMetrics;
 			}, {});
 			objStages[stage] = objMetrics;
