@@ -1,3 +1,3 @@
 [submodule "todomvc"]
-	path = todomvc
+	path = webperf/todomvc
 	url = https://github.com/tastejs/todomvc.git
