@@ -2,14 +2,6 @@
 * https://github.com/gmoon/epicbattles
 * Copyright (c) 2015 George Moon; Licensed Apache 2.0 */
 var documentDomainError;
-//var config;
-//var configXHR;
-
-// if (urlParams.config.length > 0) {
-//   configXHR = $.get(urlParams.config, function(data) {
-//     config = JSON.parse(data);
-//   });  
-// }
 
 angular.module('webPerformanceApp', ['ngSanitize'])
   // from http://stackoverflow.com/questions/17547917/angularjs-image-onload-event
@@ -43,95 +35,22 @@ angular.module('webPerformanceApp', ['ngSanitize'])
       return Math.abs(input);
     };
   }])
-  .controller('WebPerformanceController', ['$sce', '$scope', '$interval', 'webPerfConfig', function($sce, $scope, $interval, webPerfConfig) {
-    $scope.stages = ['total', 'redirect', 'appCache', 'dns', 'tcp', 'ssl', 'request', 'response', 'processing', 'onLoad'];
-    $scope.metrics = ['min', 'max', 'avg', 'stdev', 'current', 'count', 'sum'];
-    $scope.visibleMetrics = ['current', 'min', 'avg', 'max'];
-    $scope.errors = [];
-    $scope.errorsLookup = {};
+  .controller('WebPerformanceController', [
+    '$sce', '$scope', '$interval', 'webPerfConfig', 'wErrors', 'wMetrics',
+    function($sce, $scope, $interval, webPerfConfig, wErrors, wMetrics) {
 
-    // $scope.battle = {
-    //   'samplingInterval': 10000, // milliseconds
-    //   'headline': 'When serving the same TodoMVC app...',
-    //   'scoring': {
-    //     stage: 'total',
-    //     metric: 'current'
-    //   },
-    //   'contestants': [{
-    //     headlineLabel: 'TodoMVC AngularJS',
-    //     url: $sce.trustAsResourceUrl('http://gmoon.github.io/webperf/todomvc/examples/angularjs/'),
-    //     id: 'angularjs',
-    //     label: 'AngularJS',
-    //     labelCaption: 'angular',
-    //   }, {
-    //     headlineLabel: 'TodoMVC EmberJS',
-    //     url: $sce.trustAsResourceUrl('http://gmoon.github.io/webperf/todomvc/examples/emberjs/'),
-    //     id: 'emberjs',
-    //     label: 'EmberJS',
-    //     labelCaption: 'ember',
-    //   }],
-    //   'left': undefined,
-    //   'right': undefined,
-    // };
+    $scope.stages = wMetrics.getStages();
+    $scope.visibleMetrics = wMetrics.getVisibleMetrics();
+    $scope.errors = wErrors.getErrors();
+    $scope.stats  = wMetrics.getStats();
 
     var stop;
 
-    $scope.initMetrics = function(stages, metrics) {
-      var objStages = stages.reduce(function(objStages, stage) {
-        var objMetrics = metrics.reduce(function(objMetrics, metric) {
-          if (metric === 'min') {
-            objMetrics[metric] = 1000000;
-          } else {
-            objMetrics[metric] = 0;
-          }
-          return objMetrics;
-        }, {});
-        objStages[stage] = objMetrics;
-        return objStages;
-      }, {});
-      return objStages;
-    };
-
     $scope.onIframeLoad = function(event) {
-      $scope.processIframeLoad(event.currentTarget.id, event.currentTarget);
-    };
-
-    $scope.processIframeLoad = function(type, elem) {
-      var timing = elem.contentWindow.performance.timing;
-      var navStart = timing.navigationStart;
-      var redirect = timing.redirectEnd - timing.redirectStart;
-      var appCache = timing.domainLookupStart - timing.fetchStart;
-      var dns = timing.domainLookupEnd - timing.domainLookupStart;
-      var tcp = timing.connectEnd - timing.connectStart;
-      var ssl = timing.secureConnectionStart > 0 ? timing.connectEnd - timing.secureConnectionStart : 0;
-      var request = timing.responseStart - timing.requestStart;
-      var response = timing.responseEnd - timing.responseStart;
-      var processing = timing.loadEventStart - timing.domLoading;
-      var onLoad = timing.loadEventEnd - timing.loadEventStart;
-      var total = timing.loadEventEnd - navStart;
-      $scope.setMetric(type, 'redirect', redirect);
-      $scope.setMetric(type, 'appCache', appCache);
-      $scope.setMetric(type, 'dns', dns);
-      $scope.setMetric(type, 'tcp', tcp);
-      $scope.setMetric(type, 'ssl', ssl);
-      $scope.setMetric(type, 'request', request);
-      $scope.setMetric(type, 'response', response);
-      $scope.setMetric(type, 'processing', processing);
-      $scope.setMetric(type, 'onLoad', onLoad);
-      $scope.setMetric(type, 'total', total);
-      if ($scope.stats[$scope.battle.left.id].total.count === $scope.stats[$scope.battle.right.id].total.count) {
+      wMetrics.processIframeLoad(event.currentTarget.id, event.currentTarget, $scope.battle.left.id, $scope.battle.right.id);
+      if ($scope.stats[$scope.battle.left.id].total.count === $scope.stats[$scope.battle.left.id].total.count) {
         $scope.recalcPercentage();
       }
-    };
-
-    $scope.setMetric = function(type, metric, current) {
-      var m = $scope.stats[type][metric];
-      m['current'] = current;
-      m['count'] ++;
-      m['sum'] += current;
-      m['max'] = current > m['max'] ? current : m['max'];
-      m['min'] = current < m['min'] ? current : m['min'];
-      m['avg'] = Math.floor(m['sum'] / m['count']);
     };
 
     $scope.fight = function() {
@@ -144,8 +63,7 @@ angular.module('webPerformanceApp', ['ngSanitize'])
             $("#" + i.id)[0].contentWindow.location.reload();
           });
         } catch (error) {
-          $scope.addError(error);
-          console.log("error: "+error);
+          wErrors.addError(error);
         }
       stop = $interval(function() {
         try {
@@ -153,14 +71,9 @@ angular.module('webPerformanceApp', ['ngSanitize'])
             $("#" + i.id)[0].contentWindow.location.reload();
           });
         } catch (error) {
-          $scope.addError(error);
-          console.log("error: "+error);
+          wErrors.addError(error);
         }
       }, $scope.battle.samplingInterval);
-    };
-
-    $scope.reload = function() {
-
     };
 
     $scope.recalcPercentage = function() {
@@ -192,27 +105,12 @@ angular.module('webPerformanceApp', ['ngSanitize'])
       $scope.pctSlower = 0;
       $scope.stats = {};
       $scope.battle.contestants.forEach(function(i) {
-        $scope.stats[i.id] = $scope.initMetrics($scope.stages, $scope.metrics);
+        $scope.stats[i.id] = wMetrics.initMetrics();
       });
     };
 
     $scope.clearErrorMessage = function(index) {
-      $scope.errors.splice(index, 1);
-    };
-
-    $scope.addError = function(error) {
-      // look for this error message
-      var result = $.grep($scope.errors, function(e) {
-        return e.message === error.toString();
-      });
-      if (result.length === 0) { // add the error to the list
-        $scope.errors.push({
-          message: error.toString(),
-          count: 1
-        });
-      } else { // increment the count
-        result[0].count++;
-      }
+      wErrors.clearErrorMessage(index);
     };
 
     $scope.promoteFighter = function(which, index) {
@@ -222,7 +120,7 @@ angular.module('webPerformanceApp', ['ngSanitize'])
 
     // register 
     if (angular.isDefined(documentDomainError)) {
-      $scope.addError(documentDomainError);
+      wErrors.addError(documentDomainError);
     }
 
     webPerfConfig.getConfig()
@@ -236,26 +134,13 @@ angular.module('webPerformanceApp', ['ngSanitize'])
           $scope.battle.right = $scope.battle.contestants[1];
           $scope.resetFight();
           $scope.fight();
-          $("#splash").toggleClass("hide");
-          $("#app").toggleClass("hide");
+          //$("#splash").toggleClass("hide");
+          //$("#app").toggleClass("hide");
         }, 
-        function (data) {
-          console.log("error: "+data);
+        function(data) {
+          wErrors.addError(data);
         }
       );
-
-//    configXHR.done(function() {
-      //$scope.battle       = config;
-      //$scope.battle.contestants.map(function(c) {
-      //  c.url = $sce.trustAsResourceUrl(c.url);
-      //});
-      //$scope.$digest();
-//    });
-
-    //configXHR.fail(function() {
-    //  $scope.addError("unable to retrieve config from "+urlParams.config+": "+configXHR.error());
-    //});
-
   }])
   .factory('webPerfConfig', function($http, $q) {
     var service = {};
@@ -282,12 +167,107 @@ angular.module('webPerformanceApp', ['ngSanitize'])
         "url": _urlParams["config"]
       }).success(function(data) {
         deferred.resolve(data);
-      }).error(function(data) {
-        deferred.reject(data);
+      }).error(function(data, status, headers, config) {
+        deferred.reject([config.method, config.url, "returned", status].join(" "));
       });
       return deferred.promise;
     };
+    return service;
+  })
+  .factory('wErrors', function() {
+    var service = {};
+    var _errors = [];
+    service.addError = function(error) {
+      // look for this error message
+      var result = $.grep(_errors, function(e) {
+        return e.message === error.toString();
+      });
+      if (result.length === 0) { // add the error to the list
+        _errors.push({
+          message: error.toString(),
+          count: 1
+        });
+      } else { // increment the count
+        result[0].count++;
+      }
+    };
 
+    service.clearErrorMessage = function(index) {
+      _errors.splice(index, 1);
+    };
+
+    service.getErrors = function() {
+      return _errors;
+    };
+
+    return service;
+  })
+  .factory('wMetrics', function() {
+    var service = {};
+    var _stages = ['total', 'redirect', 'appCache', 'dns', 'tcp', 'ssl', 'request', 'response', 'processing', 'onLoad'];
+    var _metrics = ['min', 'max', 'avg', 'stdev', 'current', 'count', 'sum'];
+    var _visibleMetrics = ['current', 'min', 'avg', 'max'];
+    var _stats = {};
+
+    service.getStages = function() {
+      return _stages;
+    };
+    service.getVisibleMetrics = function() {
+      return _visibleMetrics;
+    };
+    service.getStats = function() {
+      return _stats;
+    };
+    service.initMetrics = function() {
+      var objStages = _stages.reduce(function(objStages, stage) {
+        var objMetrics = _metrics.reduce(function(objMetrics, metric) {
+          if (metric === 'min') {
+            objMetrics[metric] = 1000000;
+          } else {
+            objMetrics[metric] = 0;
+          }
+          return objMetrics;
+        }, {});
+        objStages[stage] = objMetrics;
+        return objStages;
+      }, {});
+      return objStages;
+    };
+    var _setMetric = function(type, metric, current) {
+      var m = _stats[type][metric];
+      m['current'] = current;
+      m['count'] ++;
+      m['sum'] += current;
+      m['max'] = current > m['max'] ? current : m['max'];
+      m['min'] = current < m['min'] ? current : m['min'];
+      m['avg'] = Math.floor(m['sum'] / m['count']);
+    };
+
+    service.processIframeLoad = function(type, elem) {
+      var timing = elem.contentWindow.performance.timing;
+      var navStart = timing.navigationStart;
+      var redirect = timing.redirectEnd - timing.redirectStart;
+      var appCache = timing.domainLookupStart - timing.fetchStart;
+      var dns = timing.domainLookupEnd - timing.domainLookupStart;
+      var tcp = timing.connectEnd - timing.connectStart;
+      var ssl = timing.secureConnectionStart > 0 ? timing.connectEnd - timing.secureConnectionStart : 0;
+      var request = timing.responseStart - timing.requestStart;
+      var response = timing.responseEnd - timing.responseStart;
+      var processing = timing.loadEventStart - timing.domLoading;
+      var onLoad = timing.loadEventEnd - timing.loadEventStart;
+      var total = timing.loadEventEnd - navStart;
+      _setMetric(type, 'redirect', redirect);
+      _setMetric(type, 'appCache', appCache);
+      _setMetric(type, 'dns', dns);
+      _setMetric(type, 'tcp', tcp);
+      _setMetric(type, 'ssl', ssl);
+      _setMetric(type, 'request', request);
+      _setMetric(type, 'response', response);
+      _setMetric(type, 'processing', processing);
+      _setMetric(type, 'onLoad', onLoad);
+      _setMetric(type, 'total', total);
+    };
+    service.initMetrics(); 
     return service;
   });
 
